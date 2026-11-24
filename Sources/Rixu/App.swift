@@ -16,6 +16,7 @@ enum Workspace: String {
     case calendar = "日历"
     case reports = "工作报告"
     case settings = "模型设置"
+    case appearance = "外观"
 }
 
 extension Notification.Name {
@@ -173,12 +174,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         windowPanel.delegate = self
         windowPanel.setAccessibilityLabel("日序菜单栏面板")
         windowPanel.onEscape = { [weak self] in self?.hidePanel() }
-        let content = MenuContent(store: store, quit: { NSApp.terminate(nil) })
-        let host = NSHostingView(rootView: content)
         let surface = NSView(frame: NSRect(origin: .zero, size: frame.size))
         let glass = NSGlassEffectView(frame: surface.bounds)
         glass.cornerRadius = 24
-        glass.style = .regular
+        let content = MenuContent(store: store, quit: { NSApp.terminate(nil) }, applyTransparency: { [weak glass] value in
+            if let glass { value.apply(to: glass) }
+        })
+        let host = NSHostingView(rootView: content)
         glass.contentView = host
         host.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
