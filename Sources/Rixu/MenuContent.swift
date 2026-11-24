@@ -9,7 +9,9 @@ private enum MenuTab: String, CaseIterable {
 struct MenuContent: View {
     let store: TaskStore
     let quit: () -> Void
+    let applyTransparency: (GlassTransparency) -> Void
 
+    @AppStorage(GlassTransparency.preferenceKey) private var transparency = GlassTransparency.standard
     @State private var workspace: Workspace?
     @State private var calendarDay = Date.now
     @State private var reports = ReportPageState()
@@ -42,6 +44,8 @@ struct MenuContent: View {
                     ReportWorkspace(store: store, openSettings: { navigate(to: .settings) }, state: reports)
                 case .settings:
                     ModelWorkspace(state: models)
+                case .appearance:
+                    AppearanceWorkspace(transparency: $transparency)
                 case nil:
                     VStack(spacing: 14) { taskContent }
                 }
@@ -57,6 +61,7 @@ struct MenuContent: View {
         .task(id: workspace) {
             if workspace == nil, editTask == nil, editDone == nil { focusInput() }
         }
+        .onChange(of: transparency, initial: true) { _, value in applyTransparency(value) }
         .onReceive(NotificationCenter.default.publisher(for: .rixuPanelOpened)) { _ in
             now = .now
             workspace = nil
@@ -132,6 +137,8 @@ struct MenuContent: View {
                     destination(.reports, icon: "doc.text")
                     destination(.settings, icon: "gear")
                     Menu {
+                        Button("外观", systemImage: "circle.lefthalf.filled") { navigate(to: .appearance) }
+                        Divider()
                         Button("退出日序", action: quit).keyboardShortcut("q")
                     } label: {
                         Image(systemName: "ellipsis")
