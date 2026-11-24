@@ -2,7 +2,23 @@
 
 原生 macOS 菜单栏应用，用来维护一张待办清单、记录每日产出，并把已完成的工作整理成日报、周报和月报。
 
-按下方说明构建后，打开 `dist/日序.app`。点击菜单栏或 Dock 的日序图标，即可在该入口旁打开面板。需要 macOS 26 或更新版本。
+点击菜单栏或 Dock 的日序图标，即可在该入口旁打开面板。需要 macOS 26 或更新版本。
+
+## 界面预览
+
+| 待办与子项 | 日历 | 工作报告 |
+| --- | --- | --- |
+| <img src="docs/screenshots/tasks.jpg" width="270" alt="日序待办弹层，展示逾期分组和展开的子项"> | <img src="docs/screenshots/calendar.jpg" width="270" alt="日序月历，展示已选日期和当天的待办安排"> | <img src="docs/screenshots/reports.jpg" width="270" alt="日序工作报告，展示日报、周报和月报选项及周报示例"> |
+
+截图使用示例数据。
+
+## 下载安装
+
+从 [GitHub Releases](https://github.com/Merenguelkl/rixu/releases/latest) 下载 `Rixu-*-arm64.dmg`。打开磁盘映像，把「日序」拖到「应用程序」，再从「应用程序」打开。
+
+预构建安装包适用于 **Apple 芯片和 macOS 26 或更新版本**。安装包使用临时签名，未经过 Apple 公证，首次打开时 macOS 可能提示无法验证开发者。
+
+## 功能
 
 - 在输入栏直接输入，按 Return 保存。左侧加号可打开完整编辑器，设置时间范围或拆分子项。按 Esc 收起面板。
 - 逾期任务固定在清单顶部。子项可以按顺序勾选，全部完成后再确认完成父任务。标记为「单独记入 Done」的子项按实际完成日计入报告。
@@ -20,6 +36,8 @@
 ```
 
 构建脚本会输出本机签名的 `dist/日序.app`。
+
+运行 `./scripts/build-dmg.sh` 可以在本机生成同样的拖拽式安装包，文件位于 `dist/`。
 
 ## 许可证
 
