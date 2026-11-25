@@ -40,6 +40,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var outsideMonitor: Any?
     private var hoverOpenTask: Task<Void, Never>?
     private var hoverCloseTask: Task<Void, Never>?
+    private var isShowingStatusMenu = false
 
     override init() {
         let directory = ProcessInfo.processInfo.environment["RIXU_DATA_DIRECTORY"].map {
@@ -68,7 +69,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             button.toolTip = "日序 · 待办与每日记录"
             button.setAccessibilityLabel("日序")
             button.target = self
-            button.action = #selector(toggle)
+            button.action = #selector(handleStatusItem(_:))
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.addTrackingArea(NSTrackingArea(rect: .zero,
                                                   options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
                                                   owner: self, userInfo: nil))
@@ -87,7 +89,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return false
     }
 
-    @objc private func toggle() {
+    @objc private func handleStatusItem(_ button: NSStatusBarButton) {
+        if let event = NSApp.currentEvent, event.window === button.window,
+           event.type == .rightMouseUp || (event.type == .leftMouseUp && event.modifierFlags.contains(.control)) {
+            showStatusMenu(for: button)
+            return
+        }
         if panel?.isVisible == true, panelOrigin == .menuBar {
             hidePanel()
         } else {
@@ -95,8 +102,21 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    private func showStatusMenu(for button: NSStatusBarButton) {
+        isShowingStatusMenu = true
+        defer { isShowingStatusMenu = false }
+        hidePanel()
+        let menu = NSMenu()
+        let quit = menu.addItem(withTitle: "退出日序", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
+        quit.target = NSApp
+        let bounds = button.bounds
+        let bottom = button.isFlipped ? bounds.maxY : bounds.minY
+        menu.popUp(positioning: nil, at: CGPoint(x: bounds.minX, y: bottom), in: button)
+    }
+
     @objc(mouseEntered:) func mouseEntered(with event: NSEvent) {
-        guard UserDefaults.standard.bool(forKey: PanelHover.preferenceKey), panel?.isVisible != true else { return }
+        guard !isShowingStatusMenu, UserDefaults.standard.bool(forKey: PanelHover.preferenceKey),
+              panel?.isVisible != true else { return }
         hoverOpenTask?.cancel()
         hoverOpenTask = Task { [weak self] in
             try? await Task.sleep(for: PanelHover.openDelay)
@@ -246,7 +266,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let surface = NSView(frame: NSRect(origin: .zero, size: frame.size))
         let glass = NSGlassEffectView(frame: surface.bounds)
         glass.cornerRadius = 24
-        let content = MenuContent(store: store, quit: { NSApp.terminate(nil) }, applyTransparency: { [weak glass] value in
+        let content = MenuContent(store: store, applyTransparency: { [weak glass] value in
             if let glass { value.apply(to: glass) }
         }, hoverSettingChanged: { [weak self] enabled in
             if !enabled { self?.cancelHover() }

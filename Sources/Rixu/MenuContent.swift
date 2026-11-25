@@ -8,7 +8,6 @@ private enum MenuTab: String, CaseIterable {
 
 struct MenuContent: View {
     let store: TaskStore
-    let quit: () -> Void
     let applyTransparency: (GlassTransparency) -> Void
     let hoverSettingChanged: (Bool) -> Void
 
@@ -142,18 +141,6 @@ struct MenuContent: View {
                     destination(.calendar, icon: "calendar")
                     destination(.reports, icon: "doc.text")
                     destination(.settings, icon: "gear")
-                    Menu {
-                        Button("退出日序", action: quit).keyboardShortcut("q")
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 14, weight: .semibold))
-                            .frame(width: 30, height: 32)
-                    }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
-                    .help("更多")
-                    .accessibilityLabel("更多")
                 }
             }
         }
