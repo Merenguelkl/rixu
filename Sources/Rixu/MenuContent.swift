@@ -8,6 +8,7 @@ private enum MenuTab: String, CaseIterable {
 
 struct MenuContent: View {
     let store: TaskStore
+    let shortcut: GlobalShortcut
     let applyTransparency: (GlassTransparency) -> Void
     let hoverSettingChanged: (Bool) -> Void
 
@@ -49,7 +50,7 @@ struct MenuContent: View {
                     }, state: reports)
                 case .settings:
                     SettingsWorkspace(section: $settingsSection, hoverEnabled: $hoverEnabled,
-                                      transparency: $transparency, models: models)
+                                      transparency: $transparency, models: models, shortcut: shortcut)
                 case nil:
                     VStack(spacing: 14) { taskContent }
                 }
@@ -116,6 +117,15 @@ struct MenuContent: View {
                     if store.message == nil { pendingRemoval = nil }
                 }
             }
+            if let label = store.undoLabel, pendingRemoval == nil {
+                HStack {
+                    Text(label).font(.callout).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("撤销", systemImage: "arrow.uturn.backward") { store.undo() }
+                        .buttonStyle(.borderless)
+                }
+                .padding(.horizontal, 4)
+            }
             composer
         }
     }
@@ -156,6 +166,7 @@ struct MenuContent: View {
 
     private func navigate(to page: Workspace?) {
         guard page != workspace else { return }
+        shortcut.cancelRecording()
         inputFocused = false
         workspace = page
     }

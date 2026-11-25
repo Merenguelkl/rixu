@@ -107,6 +107,19 @@ final class TaskStore {
         var manual: [ManualDone] = []
     }
 
+    private enum UndoChange {
+        case task(id: UUID, previous: WorkItem?, index: Int)
+        case manual(id: UUID, previous: ManualDone?, index: Int)
+    }
+
+    private struct UndoEntry {
+        let label: String
+        let change: UndoChange
+    }
+
+    private var undoHistory: [UndoEntry] = []
+    var undoLabel: String? { undoHistory.last?.label }
+
     @ObservationIgnored private let file: URL
     @ObservationIgnored private var loadFailed = false
     private var snapshot = Snapshot()
@@ -201,21 +214,22 @@ final class TaskStore {
     }
 
     @discardableResult
-    func save(_ task: WorkItem) -> Bool {
+    func save(_ task: WorkItem, action: String? = nil) -> Bool {
         var next = snapshot
-        if let index = next.tasks.firstIndex(where: { $0.id == task.id }) {
-            next.tasks[index] = task
-        } else {
-            next.tasks.insert(task, at: 0)
-        }
-        return commit(next)
+        let index = next.tasks.firstIndex { $0.id == task.id }
+        let previous = index.map { snapshot.tasks[$0] }
+        if previous == task { return true }
+        if let index { next.tasks[index] = task }
+        else { next.tasks.insert(task, at: 0) }
+        return commit(next, undo: UndoEntry(label: action ?? (previous == nil ? "已添加待办" : "已更新待办"),
+                                            change: .task(id: task.id, previous: previous, index: index ?? 0)))
     }
 
     func complete(_ task: WorkItem, at date: Date = .now) {
         guard var current = tasks.first(where: { $0.id == task.id }),
               current.completedAt == nil, current.canComplete else { return }
         current.completedAt = date
-        save(current)
+        save(current, action: "已完成任务")
     }
 
     func toggle(_ subtask: Subtask, in task: WorkItem, at date: Date = .now) {
@@ -223,18 +237,19 @@ final class TaskStore {
               current.completedAt == nil,
               let index = current.subtasks.firstIndex(where: { $0.id == subtask.id }) else { return }
         current.subtasks[index].completedAt = current.subtasks[index].completedAt == nil ? date : nil
-        save(current)
+        save(current, action: current.subtasks[index].completedAt == nil ? "已取消完成子项" : "已完成子项")
     }
 
     @discardableResult
     func save(_ entry: ManualDone) -> Bool {
         var next = snapshot
-        if let index = next.manual.firstIndex(where: { $0.id == entry.id }) {
-            next.manual[index] = entry
-        } else {
-            next.manual.append(entry)
-        }
-        return commit(next)
+        let index = next.manual.firstIndex { $0.id == entry.id }
+        let previous = index.map { snapshot.manual[$0] }
+        if previous == entry { return true }
+        if let index { next.manual[index] = entry }
+        else { next.manual.append(entry) }
+        return commit(next, undo: UndoEntry(label: previous == nil ? "已添加完成记录" : "已更新完成记录",
+                                            change: .manual(id: entry.id, previous: previous, index: index ?? snapshot.manual.count)))
     }
 
     func manualEntry(_ id: UUID) -> ManualDone? {
@@ -247,30 +262,46 @@ final class TaskStore {
         case .task:
             guard var task = tasks.first(where: { $0.id == entry.id }) else { return }
             task.completedAt = nil
-            save(task)
+            save(task, action: "已恢复待办")
         case let .subtask(parent, _):
             guard var task = tasks.first(where: { $0.id == parent }),
                   let index = task.subtasks.firstIndex(where: { $0.id == entry.id }) else { return }
             task.completedAt = nil
             task.subtasks[index].completedAt = nil
-            save(task)
+            save(task, action: "已恢复子项")
         }
     }
 
     func remove(task id: UUID) {
+        guard let index = snapshot.tasks.firstIndex(where: { $0.id == id }) else { return }
         var next = snapshot
-        next.tasks.removeAll { $0.id == id }
-        commit(next)
+        let previous = next.tasks.remove(at: index)
+        commit(next, undo: UndoEntry(label: "已删除待办", change: .task(id: id, previous: previous, index: index)))
     }
 
     func remove(manual id: UUID) {
+        guard let index = snapshot.manual.firstIndex(where: { $0.id == id }) else { return }
         var next = snapshot
-        next.manual.removeAll { $0.id == id }
-        commit(next)
+        let previous = next.manual.remove(at: index)
+        commit(next, undo: UndoEntry(label: "已删除完成记录", change: .manual(id: id, previous: previous, index: index)))
+    }
+
+    func undo() {
+        guard let entry = undoHistory.last else { return }
+        var next = snapshot
+        switch entry.change {
+        case let .task(id, previous, index):
+            next.tasks.removeAll { $0.id == id }
+            if let previous { next.tasks.insert(previous, at: index) }
+        case let .manual(id, previous, index):
+            next.manual.removeAll { $0.id == id }
+            if let previous { next.manual.insert(previous, at: index) }
+        }
+        if commit(next) { undoHistory.removeLast() }
     }
 
     @discardableResult
-    private func commit(_ next: Snapshot) -> Bool {
+    private func commit(_ next: Snapshot, undo: UndoEntry? = nil) -> Bool {
         guard !loadFailed else {
             message = "本地清单无法读取，暂时无法保存修改。"
             return false
@@ -279,6 +310,10 @@ final class TaskStore {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try JSONEncoder().encode(next).write(to: file, options: .atomic)
             load(next)
+            if let undo {
+                undoHistory.append(undo)
+                if undoHistory.count > 20 { undoHistory.removeFirst() }
+            }
             message = nil
             return true
         } catch {
