@@ -10,9 +10,12 @@ struct MenuContent: View {
     let store: TaskStore
     let quit: () -> Void
     let applyTransparency: (GlassTransparency) -> Void
+    let hoverSettingChanged: (Bool) -> Void
 
     @AppStorage(GlassTransparency.preferenceKey) private var transparency = GlassTransparency.standard
+    @AppStorage(PanelHover.preferenceKey) private var hoverEnabled = false
     @State private var workspace: Workspace?
+    @State private var settingsSection = SettingsSection.general
     @State private var calendarDay = Date.now
     @State private var reports = ReportPageState()
     @State private var models = ModelPageState()
@@ -41,11 +44,13 @@ struct MenuContent: View {
                 case .calendar:
                     CalendarWorkspace(store: store, selected: $calendarDay)
                 case .reports:
-                    ReportWorkspace(store: store, openSettings: { navigate(to: .settings) }, state: reports)
+                    ReportWorkspace(store: store, openSettings: {
+                        settingsSection = .models
+                        navigate(to: .settings)
+                    }, state: reports)
                 case .settings:
-                    ModelWorkspace(state: models)
-                case .appearance:
-                    AppearanceWorkspace(transparency: $transparency)
+                    SettingsWorkspace(section: $settingsSection, hoverEnabled: $hoverEnabled,
+                                      transparency: $transparency, models: models)
                 case nil:
                     VStack(spacing: 14) { taskContent }
                 }
@@ -62,6 +67,7 @@ struct MenuContent: View {
             if workspace == nil, editTask == nil, editDone == nil { focusInput() }
         }
         .onChange(of: transparency, initial: true) { _, value in applyTransparency(value) }
+        .onChange(of: hoverEnabled) { _, value in hoverSettingChanged(value) }
         .onReceive(NotificationCenter.default.publisher(for: .rixuPanelOpened)) { _ in
             now = .now
             workspace = nil
@@ -137,8 +143,6 @@ struct MenuContent: View {
                     destination(.reports, icon: "doc.text")
                     destination(.settings, icon: "gear")
                     Menu {
-                        Button("外观", systemImage: "circle.lefthalf.filled") { navigate(to: .appearance) }
-                        Divider()
                         Button("退出日序", action: quit).keyboardShortcut("q")
                     } label: {
                         Image(systemName: "ellipsis")

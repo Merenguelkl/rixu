@@ -15,8 +15,13 @@ enum Rixu {
 enum Workspace: String {
     case calendar = "日历"
     case reports = "工作报告"
-    case settings = "模型设置"
-    case appearance = "外观"
+    case settings = "设置"
+}
+
+enum PanelHover {
+    static let preferenceKey = "panel.show-on-hover"
+    static let openDelay: Duration = .milliseconds(300)
+    static let closeDelay: Duration = .milliseconds(400)
 }
 
 extension Notification.Name {
@@ -33,6 +38,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var panelOrigin: PanelOrigin?
     private var panelPresentedAt: TimeInterval = 0
     private var outsideMonitor: Any?
+    private var hoverOpenTask: Task<Void, Never>?
+    private var hoverCloseTask: Task<Void, Never>?
 
     override init() {
         let directory = ProcessInfo.processInfo.environment["RIXU_DATA_DIRECTORY"].map {
@@ -62,6 +69,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
             button.setAccessibilityLabel("日序")
             button.target = self
             button.action = #selector(toggle)
+            button.addTrackingArea(NSTrackingArea(rect: .zero,
+                                                  options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                                  owner: self, userInfo: nil))
         }
         item = status
         Task { @MainActor in
@@ -85,7 +95,61 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
-    private func showPanel(from origin: PanelOrigin, at point: CGPoint = NSEvent.mouseLocation) {
+    @objc(mouseEntered:) func mouseEntered(with event: NSEvent) {
+        guard UserDefaults.standard.bool(forKey: PanelHover.preferenceKey), panel?.isVisible != true else { return }
+        hoverOpenTask?.cancel()
+        hoverOpenTask = Task { [weak self] in
+            try? await Task.sleep(for: PanelHover.openDelay)
+            guard !Task.isCancelled, let self, panel?.isVisible != true,
+                  UserDefaults.standard.bool(forKey: PanelHover.preferenceKey),
+                  statusButtonFrame()?.contains(NSEvent.mouseLocation) == true else { return }
+            showPanel(from: .menuBar, hovering: true)
+        }
+    }
+
+    @objc(mouseExited:) func mouseExited(with event: NSEvent) {
+        hoverOpenTask?.cancel()
+        hoverOpenTask = nil
+    }
+
+    private func trackHover(in window: MenuPanel) {
+        hoverCloseTask = Task { [weak self, weak window] in
+            let clock = ContinuousClock()
+            var leftAt: ContinuousClock.Instant?
+            // Poll only while a hover panel is visible, including across its gap with the menu bar.
+            while !Task.isCancelled, let self, let window, window.isVisible {
+                let point = NSEvent.mouseLocation
+                let overPanel = window.frame.contains(point)
+                    || (window.childWindows ?? []).contains { $0.isVisible && $0.frame.contains(point) }
+                if overPanel || statusButtonFrame()?.contains(point) == true {
+                    leftAt = nil
+                } else if let leftAt {
+                    if leftAt.duration(to: clock.now) >= PanelHover.closeDelay {
+                        hidePanel()
+                        return
+                    }
+                } else {
+                    leftAt = clock.now
+                }
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+        }
+    }
+
+    private func cancelHover() {
+        hoverOpenTask?.cancel()
+        hoverOpenTask = nil
+        hoverCloseTask?.cancel()
+        hoverCloseTask = nil
+    }
+
+    private func statusButtonFrame() -> CGRect? {
+        guard let button = item?.button, let window = button.window, window.isVisible else { return nil }
+        return window.convertToScreen(button.convert(button.bounds, to: nil))
+    }
+
+    private func showPanel(from origin: PanelOrigin, at point: CGPoint = NSEvent.mouseLocation, hovering: Bool = false) {
+        cancelHover()
         let wasVisible = panel?.isVisible == true
         let frame = switch origin {
         case .menuBar: menuBarFrame()
@@ -96,7 +160,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         windowPanel.setFrame(frame, display: wasVisible)
         panelOrigin = origin
         panelPresentedAt = ProcessInfo.processInfo.systemUptime
-        windowPanel.makeKeyAndOrderFront(nil)
+        if hovering {
+            windowPanel.orderFrontRegardless()
+            trackHover(in: windowPanel)
+        } else {
+            windowPanel.makeKeyAndOrderFront(nil)
+        }
         if !wasVisible {
             NotificationCenter.default.post(name: .rixuPanelOpened, object: windowPanel)
         }
@@ -179,6 +248,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         glass.cornerRadius = 24
         let content = MenuContent(store: store, quit: { NSApp.terminate(nil) }, applyTransparency: { [weak glass] value in
             if let glass { value.apply(to: glass) }
+        }, hoverSettingChanged: { [weak self] enabled in
+            if !enabled { self?.cancelHover() }
         })
         let host = NSHostingView(rootView: content)
         glass.contentView = host
@@ -207,6 +278,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func hidePanel() {
+        cancelHover()
         panelOrigin = nil
         panel?.orderOut(nil)
         item?.button?.highlight(false)
