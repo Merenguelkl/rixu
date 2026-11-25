@@ -56,16 +56,34 @@ struct SettingsWorkspace: View {
                 Spacer()
                 Text(shortcut.key.display).monospaced().foregroundStyle(.secondary)
             }
-            Text(shortcut.recording ? "按下新的组合键，或按 Esc 取消。" : "在任何应用中打开日序。⌘R 常用于刷新页面。")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            HStack {
-                Button(shortcut.recording ? "取消录制" : "录制快捷键") {
-                    if shortcut.recording { shortcut.cancelRecording() }
-                    else { shortcut.beginRecording() }
+            if let proposed = shortcut.pendingConflict, let action = proposed.commonAction {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("\(proposed.display) 可能冲突", systemImage: "exclamationmark.triangle")
+                        .font(.callout.weight(.semibold))
+                    Text("这个组合键常用于\(action)。设为全局快捷键后，可能会影响原操作。")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        Button("取消") { shortcut.cancelRecording() }
+                        Button("继续使用") { shortcut.acceptConflict() }
+                            .buttonStyle(.glassProminent)
+                    }
                 }
-                Button("恢复默认") { shortcut.reset() }
-                    .disabled(shortcut.key == .standard && shortcut.message == nil)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.primary.opacity(0.06), in: .rect(cornerRadius: 8))
+            } else {
+                Text(shortcut.recording ? "按下新的组合键，或按 Esc 取消。" : "在任何应用中打开日序。")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Button(shortcut.recording ? "取消录制" : "录制快捷键") {
+                        if shortcut.recording { shortcut.cancelRecording() }
+                        else { shortcut.beginRecording() }
+                    }
+                    Button("恢复默认") { shortcut.reset() }
+                        .disabled(shortcut.key == .standard && shortcut.message == nil)
+                }
             }
             if let message = shortcut.message {
                 Label(message, systemImage: "exclamationmark.circle")

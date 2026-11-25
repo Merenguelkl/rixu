@@ -13,6 +13,35 @@ struct ShortcutKey: Codable, Equatable {
         return symbols.filter { modifiers & UInt32($0.0) != 0 }.map(\.1).joined() + key
     }
 
+    var commonAction: String? {
+        let command = UInt32(cmdKey)
+        let shifted = UInt32(cmdKey | shiftKey)
+        return switch (modifiers, key) {
+        case (command, "R"), (shifted, "R"): "刷新页面"
+        case (command, "Q"): "退出应用"
+        case (command, "W"): "关闭窗口或标签页"
+        case (command, "T"), (shifted, "T"): "新建或重新打开标签页"
+        case (command, "N"): "新建窗口或文稿"
+        case (command, "S"), (shifted, "S"): "保存文稿或另存为"
+        case (command, "C"): "复制"
+        case (command, "V"): "粘贴"
+        case (command, "X"): "剪切"
+        case (command, "Z"), (shifted, "Z"): "撤销或重做"
+        case (command, "A"): "全选"
+        case (command, "F"): "查找"
+        case (command, "P"): "打印"
+        case (command, "O"): "打开文件"
+        case (command, "H"): "隐藏当前应用"
+        case (command, "M"): "最小化窗口"
+        case (command, "⇥"), (shifted, "⇥"): "切换应用"
+        case (command, "空格"): "打开聚焦搜索"
+        case (command, ","): "打开应用设置"
+        case (shifted, _) where [kVK_ANSI_3, kVK_ANSI_4, kVK_ANSI_5].contains(Int(keyCode)): "截屏"
+        case (UInt32(cmdKey | optionKey), "Esc"): "打开强制退出窗口"
+        default: nil
+        }
+    }
+
     init(keyCode: UInt32, modifiers: UInt32, key: String) {
         self.keyCode = keyCode
         self.modifiers = modifiers
@@ -44,6 +73,7 @@ final class GlobalShortcut {
 
     private(set) var key = ShortcutKey.standard
     private(set) var recording = false
+    private(set) var pendingConflict: ShortcutKey?
     private(set) var message: String?
     @ObservationIgnored private var handler: EventHandlerRef?
     @ObservationIgnored private var reference: EventHotKeyRef?
@@ -84,12 +114,14 @@ final class GlobalShortcut {
     }
 
     func beginRecording() {
+        pendingConflict = nil
         unregister()
         recording = true
         message = nil
     }
 
     func cancelRecording() {
+        pendingConflict = nil
         guard recording else { return }
         recording = false
         _ = register(key)
@@ -97,13 +129,34 @@ final class GlobalShortcut {
 
     func reset() { change(to: .standard) }
 
+    func acceptConflict() {
+        guard let pendingConflict else { return }
+        change(to: pendingConflict)
+    }
+
     func capture(_ event: NSEvent) -> Bool {
-        guard recording, event.type == .keyDown else { return false }
+        guard event.type == .keyDown else { return false }
+        let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        let cancel = event.keyCode == kVK_Escape && modifiers.isEmpty
+        if let pendingConflict {
+            if cancel {
+                cancelRecording()
+                return true
+            }
+            return event.isARepeat && UInt32(event.keyCode) == pendingConflict.keyCode
+        }
+        guard recording else { return false }
         if event.isARepeat { return true }
-        if event.keyCode == kVK_Escape && event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty {
+        if cancel {
             cancelRecording()
         } else if let next = ShortcutKey(event: event) {
-            change(to: next)
+            if next.commonAction != nil && (next.keyCode != key.keyCode || next.modifiers != key.modifiers) {
+                recording = false
+                pendingConflict = next
+                _ = register(key)
+            } else {
+                change(to: next)
+            }
         } else {
             message = "请按下包含 Command、Option 或 Control 的组合键。"
         }
@@ -111,6 +164,7 @@ final class GlobalShortcut {
     }
 
     private func change(to next: ShortcutKey) {
+        pendingConflict = nil
         unregister()
         recording = false
         if register(next) {
