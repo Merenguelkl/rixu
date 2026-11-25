@@ -31,6 +31,7 @@ extension Notification.Name {
 @MainActor
 final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let store: TaskStore
+    private let shortcut = GlobalShortcut()
     private var item: NSStatusItem?
     private enum PanelOrigin { case menuBar, dock }
 
@@ -76,11 +77,24 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
                                                   owner: self, userInfo: nil))
         }
         item = status
+        shortcut.start { [weak self] in self?.toggleShortcutPanel() }
         Task { @MainActor in
             await Task.yield()
             let point = NSEvent.mouseLocation
             let dock = dockPlacement(at: point)
             showPanel(from: dock.contains(point) ? .dock : .menuBar, at: point)
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        shortcut.stop()
+    }
+
+    private func toggleShortcutPanel() {
+        if panel?.isKeyWindow == true {
+            hidePanel()
+        } else {
+            showPanel(from: .menuBar, focusExisting: true)
         }
     }
 
@@ -168,7 +182,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return window.convertToScreen(button.convert(button.bounds, to: nil))
     }
 
-    private func showPanel(from origin: PanelOrigin, at point: CGPoint = NSEvent.mouseLocation, hovering: Bool = false) {
+    private func showPanel(from origin: PanelOrigin, at point: CGPoint = NSEvent.mouseLocation, hovering: Bool = false, focusExisting: Bool = false) {
         cancelHover()
         let wasVisible = panel?.isVisible == true
         let frame = switch origin {
@@ -186,7 +200,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } else {
             windowPanel.makeKeyAndOrderFront(nil)
         }
-        if !wasVisible {
+        if !wasVisible || focusExisting {
             NotificationCenter.default.post(name: .rixuPanelOpened, object: windowPanel)
         }
         item?.button?.highlight(origin == .menuBar)
@@ -263,10 +277,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         windowPanel.delegate = self
         windowPanel.setAccessibilityLabel("日序菜单栏面板")
         windowPanel.onEscape = { [weak self] in self?.hidePanel() }
+        windowPanel.captureShortcut = { [weak shortcut] event in shortcut?.capture(event) == true }
         let surface = NSView(frame: NSRect(origin: .zero, size: frame.size))
         let glass = NSGlassEffectView(frame: surface.bounds)
         glass.cornerRadius = 24
-        let content = MenuContent(store: store, applyTransparency: { [weak glass] value in
+        let content = MenuContent(store: store, shortcut: shortcut, applyTransparency: { [weak glass] value in
             if let glass { value.apply(to: glass) }
         }, hoverSettingChanged: { [weak self] enabled in
             if !enabled { self?.cancelHover() }
@@ -298,6 +313,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func hidePanel() {
+        shortcut.cancelRecording()
         cancelHover()
         panelOrigin = nil
         panel?.orderOut(nil)
@@ -311,10 +327,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
 private final class MenuPanel: NSPanel {
     var onEscape: (() -> Void)?
+    var captureShortcut: ((NSEvent) -> Bool)?
     override var canBecomeKey: Bool { true }
     override func cancelOperation(_ sender: Any?) { onEscape?() }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if captureShortcut?(event) == true { return true }
         let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
         if modifiers == .command, let key = event.charactersIgnoringModifiers?.lowercased() {
             let action: Selector?
@@ -331,6 +349,7 @@ private final class MenuPanel: NSPanel {
     }
 
     override func sendEvent(_ event: NSEvent) {
+        if captureShortcut?(event) == true { return }
         if event.type == .keyDown, event.keyCode == 53,
            (firstResponder as? NSTextInputClient)?.hasMarkedText() != true {
             onEscape?()

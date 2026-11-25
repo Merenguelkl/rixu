@@ -6,6 +6,7 @@ struct TaskEditor: View {
     let onClose: (Bool) -> Void
     @FocusState private var focus: UUID?
     @State private var deleteConfirmed = false
+    @State private var removedSubtask: (item: Subtask, index: Int)?
 
     private var exists: Bool { store.tasks.contains { $0.id == task.id } }
     private var invalidRange: Bool {
@@ -78,7 +79,9 @@ struct TaskEditor: View {
                                         }
                                         Divider()
                                         Button("删除子项", systemImage: "trash", role: .destructive) {
-                                            task.subtasks.removeAll { $0.id == id }
+                                            if let index = task.subtasks.firstIndex(where: { $0.id == id }) {
+                                                removedSubtask = (task.subtasks.remove(at: index), index)
+                                            }
                                         }
                                     } label: {
                                         Image(systemName: "ellipsis.circle")
@@ -111,6 +114,17 @@ struct TaskEditor: View {
                     if store.message == nil { onClose(false) }
                 }
             } else {
+                if let removedSubtask {
+                    HStack {
+                        Text("已移除子项").font(.callout).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("撤销", systemImage: "arrow.uturn.backward") {
+                            task.subtasks.insert(removedSubtask.item, at: min(removedSubtask.index, task.subtasks.count))
+                            self.removedSubtask = nil
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
                 HStack {
                     if exists {
                         IconButton(icon: "trash", label: "删除待办") { deleteConfirmed = true }
