@@ -101,6 +101,8 @@ enum Failure: LocalizedError {
 
     var errorDescription: String? {
         switch self {
+        case .keychain(errSecAuthFailed), .keychain(errSecInteractionNotAllowed), .keychain(errSecUserCanceled):
+            "钥匙串授权未完成。请在「设置 → 模型」重新授权或临时使用 API Key。"
         case let .keychain(code): "无法访问 macOS 钥匙串（\(code)）。"
         case .invalidEndpoint: "请输入 HTTPS API 地址。本地服务可使用 HTTP。"
         case .invalidResponse: "服务返回的内容无法读取，请检查是否兼容 Chat Completions。"

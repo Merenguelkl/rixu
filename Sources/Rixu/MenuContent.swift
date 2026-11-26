@@ -9,6 +9,7 @@ private enum MenuTab: String, CaseIterable {
 struct MenuContent: View {
     let store: TaskStore
     let shortcut: GlobalShortcut
+    let updates: AppUpdates
     let applyTransparency: (GlassTransparency) -> Void
     let hoverSettingChanged: (Bool) -> Void
 
@@ -47,10 +48,10 @@ struct MenuContent: View {
                     ReportWorkspace(store: store, openSettings: {
                         settingsSection = .models
                         navigate(to: .settings)
-                    }, state: reports)
+                    }, state: reports, models: models)
                 case .settings:
                     SettingsWorkspace(section: $settingsSection, hoverEnabled: $hoverEnabled,
-                                      transparency: $transparency, models: models, shortcut: shortcut)
+                                      transparency: $transparency, models: models, shortcut: shortcut, updates: updates)
                 case nil:
                     VStack(spacing: 14) { taskContent }
                 }

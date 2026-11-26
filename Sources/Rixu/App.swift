@@ -32,6 +32,7 @@ extension Notification.Name {
 final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let store: TaskStore
     private let shortcut = GlobalShortcut()
+    private let updates = AppUpdates()
     private var item: NSStatusItem?
     private enum PanelOrigin { case menuBar, dock }
 
@@ -77,6 +78,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
                                                   owner: self, userInfo: nil))
         }
         item = status
+        updates.start()
         shortcut.start { [weak self] in self?.toggleShortcutPanel() }
         Task { @MainActor in
             await Task.yield()
@@ -281,7 +283,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let surface = NSView(frame: NSRect(origin: .zero, size: frame.size))
         let glass = NSGlassEffectView(frame: surface.bounds)
         glass.cornerRadius = 24
-        let content = MenuContent(store: store, shortcut: shortcut, applyTransparency: { [weak glass] value in
+        let content = MenuContent(store: store, shortcut: shortcut, updates: updates, applyTransparency: { [weak glass] value in
             if let glass { value.apply(to: glass) }
         }, hoverSettingChanged: { [weak self] enabled in
             if !enabled { self?.cancelHover() }
