@@ -12,6 +12,7 @@ struct SettingsWorkspace: View {
     @Binding var transparency: GlassTransparency
     let models: ModelPageState
     let shortcut: GlobalShortcut
+    let updates: AppUpdates
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -39,6 +40,7 @@ struct SettingsWorkspace: View {
                         .padding(12)
                         .background(.primary.opacity(0.045), in: .rect(cornerRadius: 12))
                         shortcutSettings
+                        UpdateSettings(updates: updates)
                     }
                 }
             case .appearance:

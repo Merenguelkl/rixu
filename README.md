@@ -40,6 +40,20 @@
 
 运行 `./scripts/build-dmg.sh` 可以在本机生成同样的拖拽式安装包，文件位于 `dist/`。
 
+## 软件更新
+
+支持 OTA 的安装包可在「设置 → 通用 → 软件更新」手动检查更新。日序运行时默认会在后台检查，也可以自行开启「自动下载并安装」。首次从旧版迁移时，从 GitHub Releases 安装一次带 OTA 的版本即可。
+
+### 打包 OTA 正式版
+
+官方 OTA 公钥位于 `scripts/ota-public-key.txt`。每次正式发版都使用 macOS 钥匙串中 `rixu-release` 账户对应的发布密钥。
+
+```sh
+./scripts/build-ota.sh
+```
+
+构建脚本使用固定版本的 Sparkle 并校验下载内容。发版时，在与应用版本一致的 `v<版本号>` GitHub Release 草稿中同时上传 `Rixu-*.dmg`、`Rixu-*.zip` 和 `appcast.xml`，再将该 Release 发布为最新正式版。应用通过 Sparkle 公钥验证更新清单和下载包。签名后的 ZIP 和 XML 需要原样上传。
+
 ## 更新日志
 
 参见 [CHANGELOG.md](CHANGELOG.md)。

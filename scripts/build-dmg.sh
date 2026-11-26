@@ -3,10 +3,11 @@ set -euo pipefail
 cd "${0:A:h:h}"
 
 ./scripts/build-app.sh
-app="dist/日序.app"
+output_dir="${RIXU_BUILD_OUTPUT:-$PWD/dist}"
+app="${output_dir:A}/日序.app"
 version="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app/Contents/Info.plist")"
 architecture="$(/usr/bin/lipo -archs "$app/Contents/MacOS/Rixu")"
-output="$PWD/dist/Rixu-${version}-${architecture}.dmg"
+output="${app:h}/Rixu-${version}-${architecture}.dmg"
 
 staging="$(mktemp -d "$PWD/.build/rixu-dmg.XXXXXX")"
 trap 'rm -rf -- "$staging"' EXIT

@@ -36,6 +36,7 @@ struct ReportWorkspace: View {
     let store: TaskStore
     let openSettings: () -> Void
     @Bindable var state: ReportPageState
+    let models: ModelPageState
 
     @AppStorage(ModelSettings.addressKey) private var address = ModelEndpoint.defaultAddress
     @AppStorage(ModelSettings.modelKey) private var model = ModelSettings.defaultModel
@@ -77,7 +78,7 @@ struct ReportWorkspace: View {
             .disabled(state.generating)
             VStack(alignment: .leading, spacing: 5) {
                 Text(rangeLabel).font(.headline)
-                Text(count == 0 ? "此时段没有完成记录" : "\(count) 条完成记录 · \(model)")
+                Text(count == 0 ? "此时段没有完成记录" : "\(count) 条完成记录 · \(models.temporary?.model ?? model)")
                     .font(.callout).foregroundStyle(.secondary)
             }
             ZStack(alignment: .topLeading) {
@@ -167,7 +168,8 @@ struct ReportWorkspace: View {
         let material = store.reportMaterial(in: interval)
         let dates = rangeLabel
         let reportKind = state.kind.rawValue
-        let chosenModel = model
+        let temporary = models.temporary
+        let chosenModel = temporary?.model ?? model
         let apiAddress = address
         guard !material.isEmpty else { return }
         state.status = nil
@@ -175,8 +177,15 @@ struct ReportWorkspace: View {
         state.request = Task {
             defer { state.generating = false; state.request = nil }
             do {
-                let endpoint = try ModelEndpoint(apiAddress)
-                let key = try await ModelSettings.readKey(for: endpoint)
+                let endpoint: ModelEndpoint
+                let key: String
+                if let temporary {
+                    endpoint = temporary.endpoint
+                    key = temporary.key
+                } else {
+                    endpoint = try ModelEndpoint(apiAddress)
+                    key = try await ModelSettings.readKey(for: endpoint)
+                }
                 try Task.checkCancellation()
                 let text = try await ModelAPI(endpoint: endpoint).report(key: key, model: chosenModel, kind: reportKind,
                                                                         dates: dates, material: material)
@@ -186,6 +195,7 @@ struct ReportWorkspace: View {
                 state.failed = false
             } catch {
                 if !Task.isCancelled {
+                    models.recordKeychainFailure(error, address: apiAddress)
                     state.status = error.localizedDescription
                     state.failed = true
                 }
@@ -196,6 +206,12 @@ struct ReportWorkspace: View {
 
 @MainActor @Observable
 final class ModelPageState {
+    struct TemporaryConfiguration {
+        let endpoint: ModelEndpoint
+        let model: String
+        let key: String
+    }
+
     var address = ModelEndpoint.defaultAddress
     var chosenModel = ModelSettings.defaultModel
     var key = ""
@@ -209,6 +225,14 @@ final class ModelPageState {
     var keyEdited = false
     var savedEndpoint: ModelEndpoint?
     var savedKey = ""
+    var temporary: TemporaryConfiguration?
+    var keychainFailureEndpoint: ModelEndpoint?
+
+    func recordKeychainFailure(_ error: Error, address: String) {
+        if case .keychain = error as? Failure {
+            keychainFailureEndpoint = try? ModelEndpoint(address)
+        }
+    }
 }
 
 struct ModelWorkspace: View {
@@ -263,6 +287,7 @@ struct ModelWorkspace: View {
                     }
                 }
                 .disabled(editingDisabled)
+                temporaryKeySettings
                 Divider()
                 HStack(spacing: 8) {
                     if state.loading || state.busy { ProgressView().controlSize(.small) }
@@ -285,6 +310,35 @@ struct ModelWorkspace: View {
         .task { loadSettings() }
     }
 
+    @ViewBuilder
+    private var temporaryKeySettings: some View {
+        if let temporary = state.temporary {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("本次运行使用 \(temporary.model)").font(.callout.weight(.semibold))
+                Text("临时配置用于生成报告，退出日序后失效。")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("停止临时使用") {
+                    state.temporary = nil
+                    showStatus("已恢复使用已保存的模型配置")
+                }
+            }
+            .disabled(editingDisabled)
+        }
+        if let endpoint = state.keychainFailureEndpoint,
+           (try? ModelEndpoint(state.address)) == endpoint {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("可在「钥匙串访问」解锁「登录」钥匙串后重试保存，或输入 API Key 暂时生成报告。")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("仅本次运行使用") {
+                    state.temporary = .init(endpoint: endpoint, model: state.chosenModel.trimmed, key: state.key.trimmed)
+                    showStatus("已启用临时模型配置")
+                }
+                .disabled(!state.keyEdited || state.key.trimmed.isEmpty || state.chosenModel.trimmed.isEmpty)
+            }
+            .disabled(editingDisabled)
+        }
+    }
+
     private func loadSettings() {
         guard !state.loaded, !state.loading else { return }
         state.loading = true
@@ -301,6 +355,7 @@ struct ModelWorkspace: View {
                 state.savedKey = try await ModelSettings.readKey(for: endpoint)
                 state.key = state.savedKey
             } catch {
+                state.recordKeychainFailure(error, address: savedAddress)
                 showStatus(error.localizedDescription, failed: true)
             }
         }
@@ -350,6 +405,8 @@ struct ModelWorkspace: View {
             state.savedKey = key
             state.key = key
             state.keyEdited = false
+            state.temporary = nil
+            if state.keychainFailureEndpoint == endpoint { state.keychainFailureEndpoint = nil }
             showStatus("设置已保存")
         }
     }
@@ -373,6 +430,7 @@ struct ModelWorkspace: View {
 
     private func requestKey(for endpoint: ModelEndpoint) async throws -> String {
         if state.keyEdited { return state.key.trimmed }
+        if let temporary = state.temporary, temporary.endpoint == endpoint { return temporary.key }
         return try await ModelSettings.readKey(for: endpoint)
     }
 
@@ -391,6 +449,7 @@ struct ModelWorkspace: View {
             do {
                 try await operation(ModelEndpoint(address))
             } catch {
+                state.recordKeychainFailure(error, address: address)
                 showStatus(error.localizedDescription, failed: true)
             }
         }
